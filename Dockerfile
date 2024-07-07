@@ -1,32 +1,38 @@
-version: '3.8'
+# Base image for Node.js
+FROM node:18-alpine as node-build
 
-services:
-  node-app:
-    build:
-      context: .
-      dockerfile: Dockerfile.node
-    ports:
-      - "3000:3000"
-    volumes:
-      - .:/app
-    command: npm run dev
+WORKDIR /app
 
-  python-app1:
-    build:
-      context: .
-      dockerfile: Dockerfile.python1
-    ports:
-      - "8000:80"
-    volumes:
-      - .:/app
-    command: uvicorn app:app --host 0.0.0.0 --port 80
+COPY package.json package-lock.json ./
+RUN npm install --silent
+COPY . ./
+RUN npm run build
 
-  python-app2:
-    build:
-      context: .
-      dockerfile: Dockerfile.python2
-    ports:
-      - "8080:80"
-    volumes:
-      - .:/app
-    command: /wait-for-postgres.sh postgres uvicorn app:app --host 0.0.0.0 --port 80
+# Base image for Python 3.10 FastAPI app
+FROM python:3.10-slim-buster as python-app1
+
+WORKDIR /app
+
+COPY --from=node-build /app /app
+RUN pip install --no-cache-dir fastapi uvicorn redis requests openai
+
+# Base image for Python 3.9 FastAPI app with PostgreSQL client
+FROM python:3.9-slim-buster
+
+WORKDIR /app
+
+COPY --from=python-app1 /app /app
+RUN pip install --no-cache-dir fastapi uvicorn redis requests openai tiktoken langchain python-dotenv postgres psycopg2-binary pgvector
+
+# Install PostgreSQL client
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
+# Copy wait-for-postgres.sh and make it executable
+COPY ./wait-for-postgres.sh /wait-for-postgres.sh
+RUN chmod +x /wait-for-postgres.sh
+
+# Expose ports
+EXPOSE 3000 80
+
+# Command to run all services sequentially
+CMD ["sh", "-c", "npm run dev & /wait-for-postgres.sh postgres uvicorn app:app --host 0.0.0.0 --port 80"]
