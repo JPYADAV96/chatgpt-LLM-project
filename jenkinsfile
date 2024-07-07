@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+    environment {
+        SONAR_HOME= tool "Sonar"
+    }
+    stages {
+        stage("Clone Code") {
+            steps {
+                echo "Cloning the Code"
+                git url: "https://github.com/JPYADAV96/chatgpt-LLM-project.git", branch: "main"
+            }
+        }
+    stage("SonarQube Quality Analysis") {
+            steps {
+                withSonarQubeEnv("Sonar"){
+                    sh "$SONAR_HOME/bin/sonar-scanner -Dsonar.projectName=chatgpt-LLM-project -Dsonar.projectKey=chatgpt-LLM-project"
+            }
+        }
+    }
+
+    stage("Sonar Quality Gate Scan") {
+            steps {
+                timeout(time: 2, unit: "MINUTES"){
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+
+    stage("Trivy File System Scan") {
+            steps {
+                echo "Scan file system"
+                sh "trivy fs --format table -o trivy-fs-report.html ."
+            }
+        }
+        stage("Build and Test") {
+            steps {
+                echo "Building the Image and Test It"
+                sh "docker build . -t chatgpt-LLM"
+            }
+        }
+
+        stage("Push to Docker Hub") {
+            steps {
+                echo "Pushing the Image to DockerHub"
+                withCredentials([usernamePassword(credentialsId: "dockerHub", passwordVariable: "dockerHubPass", usernameVariable: "dockerHubUser")]) {
+                    sh "docker tag chatgpt-LLM ${env.dockerHubUser}/chatgpt-LLM:latest"
+                    sh "docker login -u ${env.dockerHubUser} -p ${env.dockerHubPass}"
+                    sh "docker push ${env.dockerHubUser}/chatgpt-LLM:latest"
+                }
+            }
+        }
+
+        stage("Deploy") {
+            steps {
+
+                echo"Deploying the Application on web server for public view "
+                sh "docker-compose down "
+                sh "docker-compose up -d"
+            }
+        }
+    }
+}
+
+
+
+
