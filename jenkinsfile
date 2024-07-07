@@ -32,6 +32,23 @@ pipeline {
                 sh "trivy fs --format table -o trivy-fs-report.html ."
             }
         }
+    stage("Build and Test") {
+            steps {
+                echo "Building the Image and Test It"
+                sh "docker build . -t llm"
+            }
+        }
+
+        stage("Push to Docker Hub") {
+            steps {
+                echo "Pushing the Image to DockerHub"
+                withCredentials([usernamePassword(credentialsId: "dockerHub", passwordVariable: "dockerHubPass", usernameVariable: "dockerHubUser")]) {
+                    sh "docker tag llm ${env.dockerHubUser}/llm:latest"
+                    sh "docker login -u ${env.dockerHubUser} -p ${env.dockerHubPass}"
+                    sh "docker push ${env.dockerHubUser}/llm:latest"
+                }
+            }
+        }
 
 
         stage("Deploy") {
